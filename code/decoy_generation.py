@@ -30,13 +30,12 @@ def main(TYPE: str, name_in: str,
     Parameters
     ----------
     :param log: bool. Logging if True.
-    :param limit:
-    :param max_decoys:
-    :param verbose:
-    :param name_out:
-    :param log_filename:
-    :param total:
-    :param name_in:
+    :param limit: the maximum number of error (MappingError, InvalidAromaticRing)
+    :param max_decoys: the maximum number of reactions to generate
+    :param verbose: printing
+    :param name_out: output RDF filename
+    :param log_filename: output log filename
+    :param name_in: input RDF filename
     :param TYPE:
     :return: None
     """
@@ -49,12 +48,13 @@ def main(TYPE: str, name_in: str,
         comparison_set = pickle.load(pkl)
 
     with RDFRead(name_in, indexable=True) as input_rdf, \
-            open(name_out, "a") as w, RDFWrite(w) as output_rdf, \
-            open("NONRECON_{}.rdf".format(word), "a") as z, RDFWrite(z) as nonrecon_rdf, \
-            open("REMOVED_{}.rdf".format(word), "a") as y, RDFWrite(y) as rmvd_rdf:
+         open(name_out, "a") as w, RDFWrite(w) as output_rdf, \
+         open("NONRECON_{}.rdf".format(word), "a") as z, RDFWrite(z) as nonrecon_rdf, \
+         open("REMOVED_{}.rdf".format(word), "a") as y, RDFWrite(y) as rmvd_rdf, \
+         open("CONFLICT.pickle", "wb") as pkl:  # a set of reactions for which the real type is reconstructed
 
         signatures = {}
-        conflict = set()
+        conflict = {}
 
         for n, reaction in tqdm(enumerate(input_rdf), total=len(input_rdf)):
             if STOP:
@@ -83,9 +83,11 @@ def main(TYPE: str, name_in: str,
 
                         for duplicate in intersection:  # looking for duplicate decoys
                             if comparison_doc[duplicate].meta["type"] != signatures[duplicate]:
-                                conflict.add(duplicate)
+                                conflict.update({duplicate: comparison_doc[duplicate].meta["type"]})
                             else:
                                 del comparison_doc[duplicate]
+                        else:
+                            pickle.dump(conflict, pkl)
 
                         # We check if among the generated reactions there is the original one,
                         # if not, then we discard the entire set:
@@ -104,9 +106,13 @@ def main(TYPE: str, name_in: str,
                                               len(comparison_doc))))
                             for rxn in doc:
                                 if _to_compare(TYPE, rxn) in comparison_doc:  # write if reaction str is not removed
-                                    output_rdf.write(rxn)
-                                    signatures.update({_to_compare(TYPE,
-                                                                   rxn): rxn})  # write str to sign.(to rm dupl., later)
+                                    try:
+                                        output_rdf.write(rxn)
+                                        signatures.update({
+                                            _to_compare(TYPE, rxn): rxn.meta["type"]
+                                        })  # write str to sign.(to rm dupl., later)
+                                    except ValueError:  # a very large reaction can be generated
+                                        continue
                         else:  # the original reaction was not reconstructed
                             if verbose:
                                 print("NREC;ID:{};TIME:{};NUM:{}\n".format(
@@ -132,13 +138,13 @@ def main(TYPE: str, name_in: str,
                 else:
                     reaction.meta.update({"removed": "radical"})
                     rmvd_rdf.write(reaction)
-    return conflict
+    return
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('TYPE', type=str,
-                        help='Determines what kind of reaction will be converted')
+                        help='Determines what type of reaction will be used for comparison')
     parser.add_argument('name_in', type=str,
                         help='Path to the main rdf file')
     parser.add_argument('-log_filename', type=str, default='GENERATING_LOG_{}.rdf'.format(date.today()),
@@ -180,8 +186,7 @@ if __name__ == '__main__':
         ]
         pickle.dump(config_list, config)
 
-    conflict = main(str(args.TYPE), str(args.name_in), str(args.log_filename), str(args.name_out), bool(args.verbose),
-                    int(args.max_decoys), int(args.limit), bool(args.log), int(args.STOP))
+    main(str(args.TYPE), str(args.name_in), str(args.log_filename), str(args.name_out), bool(args.verbose),
+         int(args.max_decoys), int(args.limit), bool(args.log), int(args.STOP))
 
-    with open("CONFLICT.pickle", "wb") as pkl:  # a set of reactions for which the real type is reconstructed
-        pickle.dump(conflict, pkl)
+

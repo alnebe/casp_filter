@@ -116,6 +116,14 @@ def db_check(cgr):
         return False
 
 
+def number_of_atoms_check(rxn):
+    num_atoms_rxn = sum([x.atoms_count for x in rxn.reactants]) + sum([x.atoms_count for x in rxn.products])
+    if num_atoms_rxn > 150:
+        return False
+    else:
+        return True
+
+
 def not_radical(cgr):
     """
     Checking for charged atoms in a Condensed Graph of Reaction.
@@ -193,6 +201,11 @@ def apply_templates(reaction, limit):
     """
     templates = get_templates(reaction)
 
+    if number_of_atoms_check(reaction):
+        big_rxn = False
+    else:
+        big_rxn = True
+
     reactors = [Reactor(template,
                         delete_atoms=True,
                         one_shot=False,
@@ -205,8 +218,13 @@ def apply_templates(reaction, limit):
         try:
             for new_reaction in reactor_call:
                 if str(new_reaction) not in seen:
-                    seen.add(str(new_reaction))
-                    yield new_reaction
+                    if big_rxn:
+                        seen.add(str(new_reaction))
+                        yield new_reaction
+                    else:
+                        if number_of_atoms_check(new_reaction):
+                            seen.add(str(new_reaction))
+                            yield new_reaction
         except (KeyError, IndexError):
             continue
 
