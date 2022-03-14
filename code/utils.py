@@ -150,7 +150,10 @@ def containers_split(reaction):
 
 
 @time_func
-def generate_reactions(reaction, max_decoys, limit):
+def generate_reactions(reaction: ReactionContainer,
+                       max_decoys: int=50,
+                       limit: int=10,
+                       save_bad: bool=False):
     """
     Accumulation of generated reactions.
 
@@ -163,7 +166,7 @@ def generate_reactions(reaction, max_decoys, limit):
     """
     doc = set()
     num_err = 0
-    for rxn in apply_templates(reaction, limit):
+    for rxn in apply_templates(reaction, save_bad, max_decoys):
 
         if num_err > limit:  # many MappingError's may occur
             break
@@ -176,8 +179,12 @@ def generate_reactions(reaction, max_decoys, limit):
                                          meta=rxn.meta)
         new_reaction.meta.update(reaction.meta)
         try:
-            new_reaction = containers_split(new_reaction)
-            new_reaction.canonicalize()
+            new_reaction = remove_reagents(new_reaction)
+            if new_reaction is not None:
+                new_reaction = containers_split(new_reaction)
+                new_reaction.canonicalize()
+            else:
+                continue
         except InvalidAromaticRing:
             num_err += 1
             continue
@@ -192,14 +199,17 @@ def generate_reactions(reaction, max_decoys, limit):
     return doc
 
 
-def apply_templates(reaction, limit):
+def apply_templates(reaction: ReactionContainer,
+                    save_bad: bool=False,
+                    max_decoys: int=50):
     """
     Reaction generator.
     :param reaction: input reaction
-    :param limit: max number of reaction from one transformation
+    :param save_bad: save invalid rules (check generated reaction metadata for validation)
+    :param max_decoys: here, this param. need to define the max. num. of iter. of the cycle (to get rid of the closure)
     :return: yield(ReactionContainer) of generated reaction
     """
-    templates = get_templates(reaction)
+    templates = get_templates(reaction, save_bad)
 
     if number_of_atoms_check(reaction):
         big_rxn = False
@@ -210,13 +220,19 @@ def apply_templates(reaction, limit):
                         delete_atoms=True,
                         one_shot=False,
                         automorphism_filter=False,
-                        polymerise_limit=limit) for template in templates]  # NB! CGRtools v. > 4.1.22
+                        polymerise_limit=5) for template in templates]  # NB! CGRtools v. > 4.1.22
     queue = [r(reaction.reactants) for r in reactors]
+
     seen = set()
+    num_try = 0
     while queue:
         reactor_call = queue.pop(0)
         try:
             for new_reaction in reactor_call:
+                num_try += 1
+                if num_try > max_decoys * 2:
+                    queue = False
+                    break
                 if str(new_reaction) not in seen:
                     if big_rxn:
                         seen.add(str(new_reaction))
@@ -229,9 +245,11 @@ def apply_templates(reaction, limit):
             continue
 
 
-def get_templates(reaction):
+def get_templates(reaction: ReactionContainer,
+                  save_bad: bool=False):
     """
     Obtaining the templates of reaction transformations. NB! CGRtools.enumerate_centers() is used.
+    :param save_bad: save invalid rules (check generated reaction metadata for validation)
     :param reaction: input reaction
     :return: list[ReactionContainer, ...]
     """
@@ -318,5 +336,7 @@ def get_templates(reaction):
                 rule.meta["maybebad"]["type"].append("reac_to_prod_filter")
             else:
                 rule.meta.update({"maybebad": {"type": ["reac_to_prod_filter"]}})
-
-    return [rule for rule in rules if "maybebad" not in rule.meta]
+    if save_bad:
+        return rules
+    else:
+        return [rule for rule in rules if "maybebad" not in rule.meta]
