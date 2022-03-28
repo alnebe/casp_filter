@@ -64,8 +64,16 @@ class Chem(Module):
         y = self.head(x)
         return y
 
+#logging
+def log(*args):
+    avg_acc, avg_loss, avg_f1, avg_ba, sample, epoch, dl, ind = args
+    for name, metric in [avg_acc, avg_loss, avg_f1, avg_ba]:
+        Logger.current_logger().report_scalar(
+                sample, name, iteration=(epoch * len(dl) + ind), value=metric)
+
 
 if __name__ == "__main__":
+
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     task = Task.init(project_name="filter_model", task_name="NN with two hidden layears batch norm and dropout")
     with open('./fps_pkls/united_lfp_6_4096_230322.pickle', 'rb') as f:
@@ -92,7 +100,7 @@ if __name__ == "__main__":
     in_f = x_train.shape[1]
     model = Chem(in_f)
 
-    epochs = 50
+    epochs = 100
     opt = torch.optim.Adam(model.parameters(), lr=1e-4)
     criterion = torch.nn.BCELoss(reduction='mean')
 
@@ -100,8 +108,17 @@ if __name__ == "__main__":
     log_freq = 100
     model.to(device)
 
-    # train
-    for epoch in range(epochs):
+    best_loss = 2 ** 64
+    patience = 0
+    max_patience = 1
+    epoch = 0
+    best_model = model
+
+    #train
+    while epoch < epochs:  # patience < max_patience and
+        epoch += 1
+
+        avg_acc, avg_f1, avg_loss, avg_balanced_accuracy_score = 0, 0, 0, 0
         for batch_ind, (x, y) in enumerate(train_dl):
             x, y = x.to(device), y.to(device)
 
@@ -111,24 +128,43 @@ if __name__ == "__main__":
             y_pred = model(x)
 
             loss = criterion(y_pred, y)
+            avg_loss += loss
+
+            pred_transformed = y_pred > threshold
+            m = accuracy(pred_transformed.cpu().numpy(), y.cpu().numpy())
+            avg_acc += m
+
+            f = f1(y.cpu().numpy(), pred_transformed.cpu().numpy())
+            avg_f1 += f
+
+            ba = balanced_accuracy_score(y.cpu().numpy(), pred_transformed.cpu().numpy())
+            avg_balanced_accuracy_score += ba
+
             loss.backward()
             opt.step()
             opt.zero_grad()
             if batch_ind % log_freq == 0 and batch_ind > 0:
-                Logger.current_logger().report_scalar(
-                    "train", "loss", iteration=(epoch * len(train_dl) + batch_ind), value=loss.item())
                 # посчитать метрики на traininig set ACC, BA, F1
                 print('[%d/%d][%d/%d] Loss: %.4f ' % (epoch, epochs, batch_ind,
                                                       len(train_dl),
                                                       loss.item()))
 
-        # Evaluation
-        with torch.no_grad():
-            avg_acc = 0
-            avg_f1 = 0
-            avg_loss = 0
-            avg_balanced_accuracy_score = 0
+        avg_acc = avg_acc / len(train_dl)
+        avg_loss = avg_loss / len(train_dl)
+        avg_f1 = avg_f1 / len(train_dl)
+        avg_ba = avg_balanced_accuracy_score / len(train_dl)
 
+        log(("acc", avg_acc),
+            ("loss", avg_loss.item()),
+            ("f1", avg_f1),
+            ("bac", avg_ba),
+            "train", epoch, train_dl, batch_ind)
+
+        # Evaluation
+        best_model.eval()
+        with torch.no_grad():
+
+            avg_acc, avg_f1, avg_loss, avg_balanced_accuracy_score = 0, 0, 0, 0
             for x, y in valid_dl:
                 x, y = x.to(device), y.to(device)
 
@@ -154,8 +190,17 @@ if __name__ == "__main__":
             avg_f1 = avg_f1 / len(valid_dl)
             avg_ba = avg_balanced_accuracy_score / len(valid_dl)
 
-            Logger.current_logger().report_scalar(
-                "valid", "loss", iteration=(epoch * len(valid_dl) + batch_ind), value=loss.item())
+            if avg_loss.item() < best_loss:
+                best_loss = avg_loss.item()
+                best_model = model
+            # else:
+            #     patience += 1
+
+            log(("acc", avg_acc),
+                ("loss", avg_loss.item()),
+                ("f1", avg_f1),
+                ("bac", avg_ba),
+                "valid", epoch, valid_dl, batch_ind)
             print(
                 '[{:d}/{:d}] Accuracy {:.3f} F1-score {:.3f}  BA {:.3f}| Loss: {:.4f}\n'.format(epoch, epochs, avg_acc,
                                                                                                 avg_f1, avg_ba,
@@ -193,3 +238,5 @@ if __name__ == "__main__":
         avg_f1 = avg_f1 / len(test_dl)
         avg_ba = avg_balanced_accuracy_score / len(test_dl)
         print('Accuracy {:.3f} F1-score {:.3f}  BA {:.3f}\n'.format(avg_m, avg_f1, avg_ba))
+
+    torch.save(best_model, 'nn_with_2_hidden_layers_batchnorm_anddroput.pth')
