@@ -14,8 +14,6 @@ with open("/tmp/LFP_4_4096.pickle", "rb") as pkl:
 
 # split into input and output elements
 indices = list(desc_dict.keys())
-X = [l[0] for l in list(desc_dict.values())]
-Y = [l[0] for l in list(desc_dict.values())]
 
 # Prepare a directory to store all the checkpoints.
 checkpoint_dir = "./ckpt"
