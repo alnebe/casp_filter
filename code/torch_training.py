@@ -185,7 +185,7 @@ if __name__ == "__main__":
                                         ("loss", train_avg_loss.item() / batch_ind),
                                         ("f1", train_avg_f1 / batch_ind),
                                         ("bac", train_avg_bal_acc / batch_ind),
-                                         "train", epoch, train_dl, batch_ind)
+                                        "train_batch", epoch, train_dl, batch_ind)
                 print('[%d/%d][%d/%d] Loss: %.4f' % (epoch, epochs, batch_ind,
                                                      len(train_dl),
                                                      loss.item()))
@@ -195,11 +195,18 @@ if __name__ == "__main__":
         train_avg_f1 /= len(train_dl)
         train_avg_bal_acc /= len(train_dl)
 
+        # reporting metric scalars on train set
         report_scalars(("acc_train", train_avg_acc),
                        ("loss_train", train_avg_loss.item()),
                        ("f1_train", train_avg_f1),
                        ("bac_train", train_avg_bal_acc),
-                       "train", epoch)
+                       "train_epoch", epoch)
+        # reporting all metrics into one plot
+        report_scalars(("acc_train", train_avg_acc),
+                       ("loss_train", train_avg_loss.item()),
+                       ("f1_train", train_avg_f1),
+                       ("bac_train", train_avg_bal_acc),
+                       "train_with_validation_epoch", epoch)
 
         # Evaluation
         with torch.no_grad():
@@ -236,12 +243,18 @@ if __name__ == "__main__":
                            ("loss_valid", valid_avg_loss.item()),
                            ("f1_valid", valid_avg_f1),
                            ("bac_valid", valid_avg_bal_acc),
-                           "validation", epoch)
+                           "validation_epoch", epoch)
             # reporting loss on test and validation set
             report_scalars((None, None), (None, None),
                            ("loss_train", train_avg_loss.item()),
                            ("loss_valid", valid_avg_loss.item()),
                            "train_and_validation_loss", epoch)
+            # merge all metrics into one plot
+            report_scalars(("acc_valid", valid_avg_acc),
+                           ("loss_valid", valid_avg_loss.item()),
+                           ("f1_valid", valid_avg_f1),
+                           ("bac_valid", valid_avg_bal_acc),
+                           "train_with_validation_epoch", epoch)
             print('[{:d}/{:d}] Accuracy {:.3f} F1-score {:.3f}  BA {:.3f}| Loss: {:.4f}\n'.format(epoch, epochs,
                                                                                                   valid_avg_acc,
                                                                                                   valid_avg_f1,
